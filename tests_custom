@@ -1,0 +1,117 @@
+#!/bin/bash
+# Custom Lynis SSH hardening checks.
+# Review against your installed Lynis version before use.
+# These checks inspect explicit directives in the main sshd_config only.
+
+SSHD_CONFIG="${ROOTDIR}etc/ssh/sshd_config"
+
+# CUST-9001: PermitRootLogin
+Register --test-no CUST-9001 --weight L --network NO --category security \
+  --description "Check if SSH root login is disabled"
+
+if [ "${SKIPTEST}" -eq 0 ]; then
+    if [ -f "${SSHD_CONFIG}" ]; then
+        FIND=$(grep -Ei '^[[:space:]]*PermitRootLogin[[:space:]]+' "${SSHD_CONFIG}" | awk '{print $2}' | tail -n 1)
+        if [ "${FIND}" = "no" ]; then
+            LogText "Result: PermitRootLogin is disabled (secure)"
+            Display --indent 2 --text "- Custom test: SSH root login" --result OK --color GREEN
+        else
+            LogText "Result: PermitRootLogin is enabled, unset, or not explicitly set to no (value: ${FIND})"
+            Display --indent 2 --text "- Custom test: SSH root login" --result WARNING --color RED
+            ReportWarning "${TEST_NO}" "SSH root login is not explicitly disabled in the main config" "${FIND}" "text:Review PermitRootLogin in ${SSHD_CONFIG}"
+        fi
+    else
+        LogText "Result: sshd_config not found, skipping CUST-9001"
+    fi
+fi
+
+# CUST-9002: PasswordAuthentication
+Register --test-no CUST-9002 --weight L --network NO --category security \
+  --description "Check if SSH password authentication is disabled"
+
+if [ "${SKIPTEST}" -eq 0 ]; then
+    if [ -f "${SSHD_CONFIG}" ]; then
+        FIND=$(grep -Ei '^[[:space:]]*PasswordAuthentication[[:space:]]+' "${SSHD_CONFIG}" | awk '{print $2}' | tail -n 1)
+        if [ "${FIND}" = "no" ]; then
+            LogText "Result: PasswordAuthentication is disabled"
+            Display --indent 2 --text "- Custom test: SSH password auth" --result OK --color GREEN
+        else
+            LogText "Result: PasswordAuthentication is enabled, unset, or not explicitly set to no (value: ${FIND})"
+            Display --indent 2 --text "- Custom test: SSH password auth" --result WARNING --color YELLOW
+            ReportWarning "${TEST_NO}" "SSH password authentication is not explicitly disabled in the main config" "${FIND}" "text:Use key-based authentication where appropriate and review PasswordAuthentication in ${SSHD_CONFIG}"
+        fi
+    fi
+fi
+
+# CUST-9003: PermitEmptyPasswords
+Register --test-no CUST-9003 --weight L --network NO --category security \
+  --description "Check if SSH allows empty passwords"
+
+if [ "${SKIPTEST}" -eq 0 ]; then
+    if [ -f "${SSHD_CONFIG}" ]; then
+        FIND=$(grep -Ei '^[[:space:]]*PermitEmptyPasswords[[:space:]]+' "${SSHD_CONFIG}" | awk '{print $2}' | tail -n 1)
+        if [ "${FIND}" = "no" ] || [ -z "${FIND}" ]; then
+            LogText "Result: PermitEmptyPasswords is disabled or not explicitly enabled"
+            Display --indent 2 --text "- Custom test: SSH empty passwords" --result OK --color GREEN
+        else
+            LogText "Result: PermitEmptyPasswords is enabled (value: ${FIND})"
+            Display --indent 2 --text "- Custom test: SSH empty passwords" --result WARNING --color RED
+            ReportWarning "${TEST_NO}" "SSH allows empty passwords" "${FIND}" "text:Set PermitEmptyPasswords no in ${SSHD_CONFIG}"
+        fi
+    fi
+fi
+
+# CUST-9010: MaxAuthTries
+Register --test-no CUST-9010 --weight L --network NO --category security \
+  --description "Check SSH maximum authentication attempts"
+
+if [ "${SKIPTEST}" -eq 0 ]; then
+    if [ -f "${SSHD_CONFIG}" ]; then
+        FIND=$(grep -Ei '^[[:space:]]*MaxAuthTries[[:space:]]+' "${SSHD_CONFIG}" | awk '{print $2}' | tail -n 1)
+        if [ -n "${FIND}" ] && [ "${FIND}" -le 4 ] 2>/dev/null; then
+            LogText "Result: MaxAuthTries is set to ${FIND}"
+            Display --indent 2 --text "- Custom test: SSH MaxAuthTries" --result OK --color GREEN
+        else
+            LogText "Result: MaxAuthTries is unset or greater than 4 (value: ${FIND})"
+            Display --indent 2 --text "- Custom test: SSH MaxAuthTries" --result WARNING --color YELLOW
+            ReportWarning "${TEST_NO}" "SSH MaxAuthTries is not explicitly set to 4 or fewer" "${FIND}" "text:Consider setting MaxAuthTries to 3 or 4 in ${SSHD_CONFIG}"
+        fi
+    fi
+fi
+
+# CUST-9011: ClientAliveInterval and ClientAliveCountMax
+Register --test-no CUST-9011 --weight L --network NO --category security \
+  --description "Check SSH client liveness settings"
+
+if [ "${SKIPTEST}" -eq 0 ]; then
+    if [ -f "${SSHD_CONFIG}" ]; then
+        INTERVAL=$(grep -Ei '^[[:space:]]*ClientAliveInterval[[:space:]]+' "${SSHD_CONFIG}" | awk '{print $2}' | tail -n 1)
+        COUNTMAX=$(grep -Ei '^[[:space:]]*ClientAliveCountMax[[:space:]]+' "${SSHD_CONFIG}" | awk '{print $2}' | tail -n 1)
+        if [ -n "${INTERVAL}" ] && [ "${INTERVAL}" -gt 0 ] 2>/dev/null && [ -n "${COUNTMAX}" ] && [ "${COUNTMAX}" -ge 0 ] 2>/dev/null; then
+            LogText "Result: ClientAliveInterval=${INTERVAL}, ClientAliveCountMax=${COUNTMAX}"
+            Display --indent 2 --text "- Custom test: SSH idle timeout" --result OK --color GREEN
+        else
+            LogText "Result: ClientAlive settings are missing or invalid (interval=${INTERVAL}, countmax=${COUNTMAX})"
+            Display --indent 2 --text "- Custom test: SSH idle timeout" --result WARNING --color YELLOW
+            ReportWarning "${TEST_NO}" "SSH client liveness settings are not explicitly configured" "${INTERVAL}/${COUNTMAX}" "text:Review ClientAliveInterval and ClientAliveCountMax in ${SSHD_CONFIG}"
+        fi
+    fi
+fi
+
+# CUST-9012: Non-default port (optional hardening)
+Register --test-no CUST-9012 --weight L --network NO --category security \
+  --description "Suggest reviewing the default SSH port"
+
+if [ "${SKIPTEST}" -eq 0 ]; then
+    if [ -f "${SSHD_CONFIG}" ]; then
+        FIND=$(grep -Ei '^[[:space:]]*Port[[:space:]]+' "${SSHD_CONFIG}" | awk '{print $2}' | tail -n 1)
+        if [ -n "${FIND}" ] && [ "${FIND}" != "22" ]; then
+            LogText "Result: SSH Port directive is set to ${FIND}"
+            Display --indent 2 --text "- Custom test: SSH port" --result OK --color GREEN
+        else
+            LogText "Result: SSH appears configured for the default port or no explicit port was found (value: ${FIND})"
+            Display --indent 2 --text "- Custom test: SSH port" --result SUGGESTION --color YELLOW
+            ReportSuggestion "${TEST_NO}" "Review whether the default SSH port is appropriate" "text:Changing the port is optional and does not replace strong authentication or firewall controls"
+        fi
+    fi
+fi
