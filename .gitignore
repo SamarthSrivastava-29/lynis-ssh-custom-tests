@@ -1,0 +1,11 @@
+# Editor and operating-system files
+*~
+*.swp
+*.swo
+.DS_Store
+Thumbs.db
+
+# Local backups and logs
+*.bak
+*.log
+lynis-report.dat
